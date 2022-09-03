@@ -23,22 +23,22 @@ def train_one_epoch(model: torch.nn.Module,
                     device: torch.device, epoch: int, loss_scaler,
                     log_writer=None,
                     args=None):
-    model.train(True)
-    metric_logger = misc.MetricLogger(delimiter="  ")
-    metric_logger.add_meter('lr', misc.SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 20
-
-    accum_iter = args.accum_iter
-
-    optimizer.zero_grad()
-
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
+    metric_logger = misc.MetricLogger(delimiter="  ")
+    metric_logger.add_meter('lr', misc.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+
+    accum_iter = args.accum_iter
+
+    model.train(True)
+    optimizer.zero_grad()
+
+    print_freq = 20
+    header = 'Epoch: [{}]'.format(epoch)
     for data_iter_step, (samples, _) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
 
-        # we use a per iteration (instead of per epoch) lr scheduler
+        # we use a per iteration (instead of per epoch) lr scheduler, because of warmup implementation
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
 
@@ -47,23 +47,23 @@ def train_one_epoch(model: torch.nn.Module,
         with torch.cuda.amp.autocast():
             loss, _, _ = model(samples, mask_ratio=args.mask_ratio)
 
+        # verbose
         loss_value = loss.item()
-
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
             sys.exit(1)
 
         loss /= accum_iter
-        loss_scaler(loss, optimizer, parameters=model.parameters(),
-                    update_grad=(data_iter_step + 1) % accum_iter == 0)
+        loss_scaler(loss, optimizer, parameters=model.parameters(), update_grad=(data_iter_step + 1) % accum_iter == 0)
+        # loss.backward() and optimzer.step() is inside loss_scaler
+
         if (data_iter_step + 1) % accum_iter == 0:
             optimizer.zero_grad()
 
         torch.cuda.synchronize()
 
-        metric_logger.update(loss=loss_value)
-
         lr = optimizer.param_groups[0]["lr"]
+        metric_logger.update(loss=loss_value)
         metric_logger.update(lr=lr)
 
         loss_value_reduce = misc.all_reduce_mean(loss_value)

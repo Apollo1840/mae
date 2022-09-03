@@ -111,9 +111,11 @@ def setup_model(args):
 
 
 def main(args):
+    print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))
+
     misc.init_distributed_mode(args)
 
-    print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))
+    # verbose all args
     print("{}".format(args).replace(', ', ',\n'))
 
     device = torch.device(args.device)
@@ -150,7 +152,7 @@ def main(args):
                                                     drop_last=True)
 
     # step 2: define the model and train it
-    model = setup_model(args)
+    model = setup_model(args)  # model is a nn.Module
 
     model.to(device)
 
